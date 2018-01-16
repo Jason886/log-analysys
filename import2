@@ -1,0 +1,82 @@
+#!/usr/bin/env python
+#-*- coding: utf-8 -*-
+
+from mysql.connector import connect
+import json
+from datetime import datetime
+from optparse import OptionParser
+
+table    = 'log0224'
+filename = '147858674500006b-20170309.txt'
+
+def dt(ts_msec):
+    return datetime.fromtimestamp(ts_msec / 1000.0)
+
+def parse_value(string):
+    o   = json.loads(string)
+    td  = o['body']['td'] if o['body'].has_key('td') else 0
+    ver = o['body']['version'] if o['body'].has_key('version') else 0
+    url = o['body']['conn_url'] if o['body'].has_key('conn_url') else ''
+    return o['uid'], o['cip'], o['sip'], url, o['est'], dt(td), dt(o['ts']), ver
+
+def main():
+    parse_args()
+
+    sql = ("INSERT INTO " + table + " "
+        "(uid,cip,sip,prot,est,cts,sts,version) "
+        "VALUES (%s,%s,%s,%s,%s,%s,%s,%s)")
+
+    conn = connect(host='10.0.200.15', user='root', password='root', db='donli')
+    cursor = conn.cursor()
+
+    cursor.execute("DELETE FROM " + table + ";")
+    conn.commit()
+
+    i = 1
+    lines = []
+
+    with open(filename) as f:
+        for line in f:
+            if line.startswith('{'):
+                try:
+                    lines.append(parse_value(line))
+
+                    if len(lines) > 1000:
+                        cursor.executemany(sql, lines)
+                        conn.commit()
+
+                        del lines[:]
+
+                    print '[ I ]: inserted rows ', i
+                    i += 1
+                except Exception, e:
+                    raise
+                    print '[ E ]:', e
+                    continue
+
+        if len(lines) > 0:
+            cursor.executemany(sql, lines)
+            conn.commit()
+
+    conn.close()
+
+    print '[ I ]: Table:', table, 'Log File:', filename
+
+def parse_args():
+    global table, filename
+
+    MSG_USAGE = './import -t <table> -f <log file>'
+    parser = OptionParser(MSG_USAGE)
+    parser.add_option('-t', '--table', dest='table', default=table,
+                      help="""table name. example: -t log0224""")
+    parser.add_option('-f', '--file', dest='filename', default=filename,
+                      help="""used to specify logfile. example:""" + filename)
+
+    (options, args) = parser.parse_args()
+
+    table    = options.table
+    filename = options.filename
+
+    print '[ I ]: Table:', table, 'Log File:', filename
+
+if __name__ == "__main__": main()

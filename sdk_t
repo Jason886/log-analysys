@@ -1,0 +1,93 @@
+#!/usr/bin/env python
+#-*- coding: utf-8 -*-
+
+from mysql.connector import connect
+import json
+from datetime import datetime
+from optparse import OptionParser
+
+filename = '147858674500006b-20170309.txt'
+
+def dt(ts_msec):
+    return datetime.fromtimestamp((secs(ts_msec)))
+
+def secs(ts_msec):
+    return ts_msec / 1000.0
+
+def parse_value(string):
+    o   = json.loads(string)
+
+    conn_id = o['body']['conn_id']
+    cts     = o['body']['timestamp']
+    ver     = o['body']['version'] if o['body'].has_key('version') else 0
+
+    return conn_id, o['uid'], o['cip'], o['sip'], o['est'], cts, ver
+
+def main():
+    parse_args()
+
+    last_conn_id = 0
+    last_c_t, last_s_t, last_f_t, last_cts, last_uid, last_cip, last_sip, last_ver = 0, 0, 0, 0, '', '', '', 0
+    ests = []
+
+    with open(filename) as f:
+        for line in f:
+            if line.startswith('{'):
+                try:
+                    conn_id, uid, cip, sip, est, cts, ver = parse_value(line)
+                    if conn_id > 0:
+                        if last_uid != uid:
+                            last_cts, last_uid, last_cip, last_sip, last_ver = cts, uid, cip, sip, ver
+
+                        if conn_id != last_conn_id:
+                            d_c = (last_s_t - last_c_t) if last_s_t > 0 else 0
+                            d_f = (last_f_t - last_c_t) if last_f_t > 0 else 0
+
+                            cdt = dt(cts)
+
+                            print '{7} [ I ] conn_id: {0:>10}, uid: {1}, cip: {2}, sip: {5}, duration(success): {3:.3f}, duration(fail): {4:.3f}  \tversion: {6}, ests:{8}'.format(
+                                    conn_id, uid, cip, d_c, d_f, sip, ver, cdt, ests)
+
+                            last_c_t     = 0
+                            last_s_t     = 0
+                            last_f_t     = 0
+
+                            last_uid     = ''
+                            ests = []
+
+                        if est == 7:
+                            last_c_t = secs(cts)
+                        elif est == 3:
+                            last_s_t = secs(cts)
+                        elif est == 4:
+                            last_f_t = secs(cts)
+
+                        ests.append(est)
+                            
+                        last_conn_id = conn_id
+
+                        #print '[ D ]:', est, last_conn_id, conn_id, last_uid, last_cip, last_sip, cts, ver, last_c_t, last_s_t, last_f_t
+                    else:
+                        print '[ E ]: no conn_id in the row:', line
+                except Exception, e:
+                    raise
+                    print '[ E ]:', e
+                    continue
+            else:
+                print '[ E ]: the line is not json:', line
+
+
+def parse_args():
+    global filename
+
+    MSG_USAGE = './sdk_t -f <log file>'
+    parser = OptionParser(MSG_USAGE)
+    parser.add_option('-f', '--file', dest='filename', default=filename,
+                      help="""used to specify logfile. example:""" + filename)
+
+    (options, args) = parser.parse_args()
+    filename = options.filename
+
+    print '[ I ] Log File:', filename
+
+if __name__ == "__main__": main()
